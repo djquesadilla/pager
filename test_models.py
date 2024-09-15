@@ -308,6 +308,45 @@ class TestPagerService(unittest.TestCase):
             self.assertNotEqual(duplicated_alert, pager_service.alerts[duplicated_alert.monitored_service])
             self.assertEqual(len(pager_service.alerts), 1)
 
+    def testHandleTimeoutIfHealthy(self):
+        """
+        Use case #5:
+        Given a Monitored Service in an Unhealthy State,
+        when the Pager receives a Healthy event related to this Monitored Service
+        and later receives the Acknowledgement Timeout,
+        then the Monitored Service becomes Healthy,
+        the Pager doesn’t notify any Target
+        and doesn’t set an acknowledgement delay
+        """
+        service = MonitoredService('service #1')
+        alert = Alert(service)
+        escalation_policy = EscalationPolicy(
+          {
+            service.service_name: EscalationPolicyMonitoredService(
+              service,
+              [
+                EscalationPolicyLevel([SMS('900100200')]),
+                EscalationPolicyLevel([Email('user@example.com')])
+              ]
+            )
+          }
+        )
+        pager_service = PagerService(escalation_policy)
+        timeout = 2
+        # Inside your test method
+        # Given a Monitored Service in an Unhealthy State
+        pager_service.receive_alert(alert, timeout)
+        # The service becomes Healthy before the acknowledgement timeout
+        alert.monitored_service.set_healthy()
+        # Since the service is healthy, attempting to handle the acknowledgement timeout should raise an exception
+        with self.assertRaises(Exception) as context:
+            pager_service.handle_acknowledgement_timeout(alert)
+        self.assertEqual(str(context.exception), 'Service is healthy')
+        # Verify that the alert is no longer in the alerts dictionary
+        self.assertNotIn(alert.monitored_service, pager_service.alerts)
+        # Verify that there is no timer associated with the alert
+        self.assertNotIn(alert, pager_service.timer_manager.timers)
+            
 
 if __name__ == '__main__':
     unittest.main()

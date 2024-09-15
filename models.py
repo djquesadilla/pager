@@ -161,9 +161,14 @@ class PagerService:
         del self.alerts[alert.monitored_service]
     
     def _send_to_targets(self, alert: Alert):
-        targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
-        for target in targets:
-            self.alerts_log.append(target.notify(alert.message))
+        if alert.monitored_service.healthy:
+            self.timer_manager.cancel_timer(alert)
+            del self.alerts[alert.monitored_service]
+            raise Exception('Service is healthy')
+        else:
+            targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
+            for target in targets:
+                self.alerts_log.append(target.notify(alert.message))
     
     def _escalation_levels_count(self, alert: Alert) -> int:
         return len(self.escalation_policy.policies[alert.monitored_service.service_name].levels)
