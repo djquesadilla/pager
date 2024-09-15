@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "Running Pager tests"
+python test_models.py

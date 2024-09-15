@@ -1,4 +1,34 @@
-# Use Cases
+# Pager
+
+This project is a simple implementation of a Pager that receives alerts from Monitored Services and notifies the targets of an escalation policy.
+
+## Installation
+
+Run the following command to install the project dependencies:
+
+```bash
+./setup
+```
+
+This will install the project dependencies and create a virtual environment.
+
+## Running the tests
+
+Run the following command to run the tests:
+
+```bash
+./test
+```
+
+# Design
+
+First intuition and design of the Pager didn't include any threading or async processing. The Pager would be a simple class that would receive alerts and notify the targets of the escalation policy:
+
+![Pager Design](images/system_diagram_without_threading.png)
+
+
+
+# Use Cases covered
 
 These are the use cases we're going to implement in this project to test the Pager.
 
