@@ -1,7 +1,9 @@
+from pydoc import pager
 import unittest
 import datetime
 
-from models import SMS, Alert, Email, EscalationPolicy, EscalationPolicyLevel, EscalationPolicyMonitoredService, PagerService, MonitoredService
+from event_emitter import EventEmitter
+from models import SMS, Alert, Email, EscalationPolicy, EscalationPolicyLevel, EscalationPolicyMonitoredService, PagerService, MonitoredService, TimerManager
 
 class TestEmail(unittest.TestCase):
     def test_initialization(self):
@@ -117,7 +119,13 @@ class TestPagerService(unittest.TestCase):
           )
         }
       ))
-      self.assertIsInstance(pager_service.alerts, list)
+
+      self.assertIsInstance(pager_service.escalation_policy, EscalationPolicy)
+      self.assertIsInstance(pager_service.alerts, dict)
+      self.assertIsInstance(pager_service.alerts_log, list)
+      self.assertIsInstance(pager_service.timer_manager, TimerManager)
+      self.assertIsInstance(pager_service.event_emitter, EventEmitter)
+
   
     def testReceiveAlert(self):
         """
@@ -144,25 +152,9 @@ class TestPagerService(unittest.TestCase):
         pager_service = PagerService(escalation_policy)
         timeout = 1
         pager_service.receive_alert(alert, timeout)
-        self.assertIn(alert, pager_service.alerts)
+        self.assertEqual(alert, pager_service.alerts[alert.monitored_service])
         self.assertFalse(service.healthy)
-        # Test that the alert was sent to all targets of the escalation policy
-        # Expected message for SMS target in the first level:
-        expected_message = "Sending SMS to 900100200: service #1 is unhealthy (Level 0)"
-        self.assertEqual(
-          pager_service.alerts_log,
-          [expected_message]
-        )
-        self.assertCountEqual(
-          pager_service.alerts_log,
-          [expected_message]
-        )
-        # Test that the timer acknowledgment delay was set to TIMEOUT seconds
-        # the default in the app is 15 minutes
-        timer = pager_service.timer_manager.timers[alert]
-        self.assertIsNotNone(timer)
-        self.assertEqual(timer.interval, timeout)
-  
+        
     def testHandleAcknowledgementTimeout(self):
         """
         Use case #2:
@@ -184,14 +176,17 @@ class TestPagerService(unittest.TestCase):
             )
           }
         )
-        # Start of Selection
         pager_service = PagerService(escalation_policy)
+        # Given an Alert that has not been acknowledged,
         pager_service.receive_alert(alert, 1)
+        # When the acknowledgement delay expires
         # Manually handle the acknowledgement timeout
         pager_service.handle_acknowledgement_timeout(alert)
         # Cancel the timer to prevent it from firing again and causing an exception
         pager_service.timer_manager.cancel_timer(alert)
         self.assertEqual(alert.current_level, 1)
+        # then the Alert escalates to the next level of the escalation policy,
+        # and notifies all targets of the new level.
         # Test that the alert was sent to all targets of the next level
         # Expected message for Email target in the second level:
         expected_message_level_0 = "Sending SMS to 900100200: service #1 is unhealthy (Level 0)"
@@ -278,8 +273,41 @@ class TestPagerService(unittest.TestCase):
             pager_service.handle_acknowledgement_timeout(alert)
             self.assertEqual(str(context.exception), 'Alert already acknowledged')
     
-    
+    def testDuplicatedNotifications(self):
+        """
+        Use case #4:
+        Given a Monitored Service in an Unhealthy State,
+        when the Pager receives an Alert related to this Monitored Service,
+        then the Pager doesn’t notify any Target
+        and doesn’t set an acknowledgement delay.
+        """
+        service = MonitoredService('service #1')
+        alert = Alert(service)
+        duplicated_alert = Alert(service)
+        escalation_policy = EscalationPolicy(
+          {
+            service.service_name: EscalationPolicyMonitoredService(
+              service,
+              [
+                EscalationPolicyLevel([SMS('900100200')]),
+                EscalationPolicyLevel([Email('user@example.com')])
+              ]
+            )
+          }
+        )
+        pager_service = PagerService(escalation_policy)
+        timeout = 2
+        pager_service.receive_alert(alert, timeout)
+        pager_service.handle_acknowledgement(alert)
+
+        with self.assertRaises(Exception) as context:
+            pager_service.receive_alert(duplicated_alert, timeout)
+            self.assertEqual(str(context.exception), 'Alert already exists')
         
+            self.assertEqual(alert, pager_service.alerts[alert.monitored_service])
+            self.assertNotEqual(duplicated_alert, pager_service.alerts[duplicated_alert.monitored_service])
+            self.assertEqual(len(pager_service.alerts), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

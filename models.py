@@ -116,7 +116,7 @@ class TimerManager:
 class PagerService:
     def __init__(self, escalation_policy: EscalationPolicy):
         self.escalation_policy: EscalationPolicy = escalation_policy
-        self.alerts: List[Alert] = []
+        self.alerts: dict = {} # { MonitoredService: Alert } 
         self.alerts_log = [] # log
 
         self.event_emitter = EventEmitter()
@@ -126,14 +126,17 @@ class PagerService:
         self.event_emitter.on('timeout', self._handle_timeout_event)
     
     def receive_alert(self, alert: Alert, seconds: Optional[int] = None):
-        # append the alert to the list of alerts
-        self.alerts.append(alert)
-        # set the service to unhealthy
-        alert.monitored_service.set_unhealthy()
-        # send the alert to all targets of the escalation policy current level
-        self._send_to_targets(alert)
-        # sets timer acknowledgment delay to 15 minutes
-        self.timer_manager.set_timer(alert, seconds)
+        if alert.monitored_service not in self.alerts:
+          # append the alert to the list of alerts
+          self.alerts[alert.monitored_service] = alert
+          # set the service to unhealthy
+          alert.monitored_service.set_unhealthy()
+          # send the alert to all targets of the escalation policy current level
+          self._send_to_targets(alert)
+          # sets timer acknowledgment delay to 15 minutes
+          self.timer_manager.set_timer(alert, seconds)
+        else:
+          raise Exception('Alert already exists')
     
     def _handle_timeout_event(self, event: TimeoutEvent):
         self.handle_acknowledgement_timeout(event.alert)
@@ -155,7 +158,7 @@ class PagerService:
     def handle_acknowledgement(self, alert: Alert):
         alert.acknowledge()
         self.timer_manager.cancel_timer(alert)
-        self.alerts.remove(alert)
+        del self.alerts[alert.monitored_service]
     
     def _send_to_targets(self, alert: Alert):
         targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
