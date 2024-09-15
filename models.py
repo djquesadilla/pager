@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 class Target(ABC):
     @abstractmethod
     def notify(self, message: str):
-        pass
+      pass
 
 class Email(Target):
     def __init__(self, email_address):
@@ -99,7 +99,10 @@ class PagerService:
         # set the service to unhealthy
         alert.monitored_service.set_unhealthy()
         # send the alert to all targets of the escalation policy current level
+        self._send_to_targets(alert)
+        # sets timer acknowledgment delay to 15 minutes
+    
+    def _send_to_targets(self, alert: Alert):
         targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
         for target in targets:
             self.alerts_log.append(target.notify(alert.message))
-        # sets timer acknowledgment delay to 15 minutes
