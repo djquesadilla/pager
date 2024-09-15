@@ -203,6 +203,25 @@ class TestPagerService(unittest.TestCase):
           pager_service.alerts_log,
           [expected_message_level_0, expected_message_level_1]
         )
+    
+    def testHandleNoMoreEscalationLevelsException(self):
+        service = MonitoredService('service #1')
+        alert = Alert(service)
+        escalation_policy = EscalationPolicy(
+          {
+            service.service_name: EscalationPolicyMonitoredService(
+              service,
+              [
+                EscalationPolicyLevel([SMS('900100200')]),
+              ]
+            )
+          }
+        )
+        pager_service = PagerService(escalation_policy)
+        pager_service.receive_alert(alert)
+        with self.assertRaises(Exception) as context:
+            pager_service.handle_acknowledgement_timeout(alert)
+            self.assertEqual(str(context.exception), 'No more escalation levels')
 
 
 if __name__ == '__main__':

@@ -108,9 +108,15 @@ class PagerService:
     def handle_acknowledgement_timeout(self, alert: Alert):
         if not alert.timer.acknowledged:
             alert.escalate()
-            self._send_to_targets(alert)
+            if alert.current_level < self._escalation_levels_count(alert):
+                self._send_to_targets(alert)
+            else:
+                raise Exception('No more escalation levels')
     
     def _send_to_targets(self, alert: Alert):
         targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
         for target in targets:
             self.alerts_log.append(target.notify(alert.message))
+    
+    def _escalation_levels_count(self, alert: Alert) -> int:
+        return len(self.escalation_policy.policies[alert.monitored_service.service_name].levels)
