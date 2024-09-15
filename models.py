@@ -146,6 +146,11 @@ class PagerService:
             else:
                 raise Exception('No more escalation levels')
     
+    def handle_acknowledgement(self, alert: Alert):
+        alert.acknowledge()
+        self.timer_manager.cancel_timer(alert)
+        self.alerts.remove(alert)
+    
     def _send_to_targets(self, alert: Alert):
         targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
         for target in targets:
