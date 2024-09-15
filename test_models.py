@@ -155,7 +155,6 @@ class TestPagerService(unittest.TestCase):
           }
         )
         pager_service = PagerService(escalation_policy)
-        
         pager_service.receive_alert(alert)
         self.assertIn(alert, pager_service.alerts)
         self.assertFalse(service.healthy)
@@ -173,5 +172,38 @@ class TestPagerService(unittest.TestCase):
         # test that the timer acknowledgment delay was set to 15 minutes
         self.assertEqual(alert.timer.timeout, alert.timer.created_at + datetime.timedelta(minutes=15))
   
+    def testHandleAcknowledgementTimeout(self):
+        # Use case #2:
+        # Given an Alert that has not been acknowledged,
+        # when the acknowledgement delay expires,
+        # then the Alert escalates to the next level of the escalation policy,
+        # and notifies all targets of the new level.
+        service = MonitoredService('service #1')
+        alert = Alert(service)
+        escalation_policy = EscalationPolicy(
+          {
+            service.service_name: EscalationPolicyMonitoredService(
+              service,
+              [
+                EscalationPolicyLevel([SMS('900100200')]),
+                EscalationPolicyLevel([Email('user@example.com')])
+              ]
+            )
+          }
+        )
+        pager_service = PagerService(escalation_policy)
+        pager_service.receive_alert(alert)
+        pager_service.handle_acknowledgement_timeout(alert)
+        self.assertEqual(alert.current_level, 1)
+        # Test that the alert was sent to all targets of the next level
+        # Expected message for Email target in the second level:
+        expected_message_level_0 = "Sending SMS to 900100200: service #1 is unhealthy (Level 0)"
+        expected_message_level_1 = "Emailing user@example.com: service #1 is unhealthy (Level 1)"
+        self.assertEqual(
+          pager_service.alerts_log,
+          [expected_message_level_0, expected_message_level_1]
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

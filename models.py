@@ -69,7 +69,6 @@ class Alert:
         self.monitored_service: MonitoredService = monitored_service
         self.sent_at: datetime.datetime = datetime.datetime.now()
         self.current_level: int = 0
-        self.message: str = f'{monitored_service.service_name} is unhealthy (Level {self.current_level})'
         self.timer = Timer(self.sent_at)
     
     def escalate(self):
@@ -77,6 +76,10 @@ class Alert:
 
     def acknowledge(self):
         self.timer.acknowledge()
+    
+    @property
+    def message(self) -> str:
+        return f'{self.monitored_service.service_name} is unhealthy (Level {self.current_level})'
     
     def __str__(self):
         return (
@@ -101,6 +104,11 @@ class PagerService:
         # send the alert to all targets of the escalation policy current level
         self._send_to_targets(alert)
         # sets timer acknowledgment delay to 15 minutes
+    
+    def handle_acknowledgement_timeout(self, alert: Alert):
+        if not alert.timer.acknowledged:
+            alert.escalate()
+            self._send_to_targets(alert)
     
     def _send_to_targets(self, alert: Alert):
         targets = self.escalation_policy.policies[alert.monitored_service.service_name].levels[alert.current_level].targets
