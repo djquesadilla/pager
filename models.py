@@ -144,7 +144,13 @@ class PagerService:
             if alert.current_level < self._escalation_levels_count(alert):
                 self._send_to_targets(alert)
             else:
+                self.timer_manager.cancel_timer(alert)
+                # TODO: future work, this is the extreme case, we should notify the service owner
                 raise Exception('No more escalation levels')
+        else:
+            self.alerts.remove(alert)
+            self.timer_manager.cancel_timer(alert)
+            raise Exception('Alert already acknowledged')
     
     def handle_acknowledgement(self, alert: Alert):
         alert.acknowledge()

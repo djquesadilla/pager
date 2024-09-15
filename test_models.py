@@ -120,12 +120,14 @@ class TestPagerService(unittest.TestCase):
       self.assertIsInstance(pager_service.alerts, list)
   
     def testReceiveAlert(self):
-        # Use case #1:
-        # Given a Monitored Service in a Healthy State,
-        # when the Pager receives an Alert related to this Monitored Service,
-        # then the Monitored Service becomes Unhealthy,
-        # the Pager notifies all targets of the first level of the escalation policy,
-        # and sets a 15-minutes acknowledgement delay.
+        """
+        Use case #1:
+        Given a Monitored Service in a Healthy State,
+        when the Pager receives an Alert related to this Monitored Service,
+        then the Monitored Service becomes Unhealthy,
+        the Pager notifies all targets of the first level of the escalation policy,
+        and sets a 15-minutes acknowledgement delay.
+        """
         service= MonitoredService('service #1')
         alert = Alert(service)
         escalation_policy = EscalationPolicy(
@@ -162,11 +164,13 @@ class TestPagerService(unittest.TestCase):
         self.assertEqual(timer.interval, timeout)
   
     def testHandleAcknowledgementTimeout(self):
-        # Use case #2:
-        # Given an Alert that has not been acknowledged,
-        # when the acknowledgement delay expires,
-        # then the Alert escalates to the next level of the escalation policy,
-        # and notifies all targets of the new level.
+        """
+        Use case #2:
+        Given an Alert that has not been acknowledged,
+        when the acknowledgement delay expires,
+        then the Alert escalates to the next level of the escalation policy,
+        and notifies all targets of the new level.
+        """
         service = MonitoredService('service #1')
         alert = Alert(service)
         escalation_policy = EscalationPolicy(
@@ -241,6 +245,40 @@ class TestPagerService(unittest.TestCase):
         self.assertTrue(alert.acknowledged)
         self.assertNotIn(alert, pager_service.alerts)
         self.assertNotIn(alert, pager_service.timer_manager.timers)
+    
+
+    def testHandleTimeoutAfterAcknowledgement(self):
+        """
+        User case #3:
+        Given a Monitored Service in an Unhealthy State
+        when the Pager receives the Acknowledgement
+        and later receives the Acknowledgement Timeout,
+        then the Pager doesn't notify any Target
+        and doesn't set an acknowledgement delay.
+        """
+        service = MonitoredService('service #1')
+        alert = Alert(service)
+        escalation_policy = EscalationPolicy(
+          {
+            service.service_name: EscalationPolicyMonitoredService(
+              service,
+              [
+                EscalationPolicyLevel([SMS('900100200')]),
+                EscalationPolicyLevel([Email('user@example.com')])
+              ]
+            )
+          }
+        )
+        pager_service = PagerService(escalation_policy)
+        timeout = 2
+        pager_service.receive_alert(alert, timeout)
+        pager_service.handle_acknowledgement(alert)
+
+        with self.assertRaises(Exception) as context:
+            pager_service.handle_acknowledgement_timeout(alert)
+            self.assertEqual(str(context.exception), 'Alert already acknowledged')
+    
+    
         
 
 if __name__ == '__main__':
