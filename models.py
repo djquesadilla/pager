@@ -1,8 +1,11 @@
 import datetime
+import threading
 from typing import List, Optional
 
 
 from abc import ABC, abstractmethod
+
+from event_emitter import EventEmitter
 
 class Target(ABC):
     @abstractmethod
@@ -41,7 +44,7 @@ class MonitoredService:
 class EscalationPolicyLevel:
     def __init__(self, targets: List[Target]):
         self.targets = targets
-
+    
 class EscalationPolicyMonitoredService:
     def __init__(self, monitored_service: MonitoredService, levels: List[EscalationPolicyLevel]):
         self.monitored_service = monitored_service
@@ -53,29 +56,22 @@ class EscalationPolicyMonitoredService:
 class EscalationPolicy:
     def __init__(self, policies: dict):
         self.policies: dict = policies # Dictionary with monitored_service name as keys and EscalationPolicyMonitoredService as values
-
-class Timer:
-    def __init__(self, created_at: datetime.datetime):
-        self.created_at: datetime.datetime = created_at
-        self.timeout: Optional[datetime.datetime] = self.created_at + datetime.timedelta(minutes=15)
-        self.acknowledged: bool = False
     
-    def acknowledge(self):
-        self.acknowledged = True
-        self.timeout = None
+    def __str__(self):
+        return f"{self.policies}"
 
 class Alert:
     def __init__(self, monitored_service):
         self.monitored_service: MonitoredService = monitored_service
         self.sent_at: datetime.datetime = datetime.datetime.now()
         self.current_level: int = 0
-        self.timer = Timer(self.sent_at)
+        self.acknowledged: bool = False
     
     def escalate(self):
         self.current_level += 1
 
     def acknowledge(self):
-        self.timer.acknowledge()
+        self.acknowledged = True
     
     @property
     def message(self) -> str:
@@ -87,16 +83,49 @@ class Alert:
             f"Sent at {self.sent_at}\n"
             f"Current escalation level: {self.current_level}\n"
             f"Timeout for acknowledge: {self.timer.timeout}\n"
-            f"Acknowledged: {self.timer.acknowledged}"
         )
+
+class TimeoutEvent:
+    alert: Alert
+
+    def __init__(self, alert: Alert):
+        self.alert = alert
+
+class TimerManager:
+    def __init__(self, event_emitter: EventEmitter):
+        self.event_emitter: EventEmitter = event_emitter
+        self.timers = {} # Dictionary with alert as key and timer as value
+    
+    def set_timer(self, alert, seconds: Optional[int] = None):
+        timeout: datetime.datetime = seconds if seconds else datetime.timedelta(minutes=15).total_seconds()
+        timer: threading.Timer = threading.Timer(timeout, self._handle_timeout, args=[alert])
+        self.timers[alert] = timer
+        timer.start()
+    
+    def cancel_timer(self, alert):
+        if alert in self.timers:
+            self.timers[alert].cancel()
+            del self.timers[alert]
+    
+    def _handle_timeout(self, alert: Alert):
+        self.event_emitter.emit('timeout', TimeoutEvent(alert))
+    
+    def __str__(self):
+        return f"Timers: {self.timers}"
 
 class PagerService:
     def __init__(self, escalation_policy: EscalationPolicy):
         self.escalation_policy: EscalationPolicy = escalation_policy
         self.alerts: List[Alert] = []
-        self.alerts_log = [] # log 
+        self.alerts_log = [] # log
+
+        self.event_emitter = EventEmitter()
+        self.timer_manager = TimerManager(self.event_emitter)
+
+        # subscribe to timeout event
+        self.event_emitter.on('timeout', self._handle_timeout_event)
     
-    def receive_alert(self, alert: Alert):
+    def receive_alert(self, alert: Alert, seconds: Optional[int] = None):
         # append the alert to the list of alerts
         self.alerts.append(alert)
         # set the service to unhealthy
@@ -104,9 +133,13 @@ class PagerService:
         # send the alert to all targets of the escalation policy current level
         self._send_to_targets(alert)
         # sets timer acknowledgment delay to 15 minutes
+        self.timer_manager.set_timer(alert, seconds)
     
+    def _handle_timeout_event(self, event: TimeoutEvent):
+        self.handle_acknowledgement_timeout(event.alert)
+
     def handle_acknowledgement_timeout(self, alert: Alert):
-        if not alert.timer.acknowledged:
+        if not alert.acknowledged:
             alert.escalate()
             if alert.current_level < self._escalation_levels_count(alert):
                 self._send_to_targets(alert)
@@ -120,3 +153,11 @@ class PagerService:
     
     def _escalation_levels_count(self, alert: Alert) -> int:
         return len(self.escalation_policy.policies[alert.monitored_service.service_name].levels)
+    
+    def __str__(self):
+        return (
+            f"Alerts: {self.alerts}\n"
+            f"Alerts log: {self.alerts_log}\n"
+            f"Escalation policy: {self.escalation_policy}\n"
+            f"Timer manager: {self.timer_manager}"
+        )

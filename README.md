@@ -26,6 +26,16 @@ First intuition and design of the Pager didn't include any threading or async pr
 
 ![Pager Design](images/system_diagram_without_threading.png)
 
+## Adding Threading and the Observer Pattern for the Acknowledgement Timeout
+
+After implementing the first use case, I realized that the Pager would need to keep track of the Timers for each alert.
+I added a TimerManager class that would keep track of the timeouts for each alert. The Pager would be responsible for notifying the TimerManager when an alert is acknowledged.
+
+Also, I removed the timer from the Alert class.
+
+To implement the TimerManager, I used the Observer Pattern. The TimerManager would be the publisher and the Pager would be the subscriber. The Pager would be notified when a timer expires.
+
+![Pager Design With Threading](images/system_diagram_with_threading.png)
 
 
 # Use Cases covered
